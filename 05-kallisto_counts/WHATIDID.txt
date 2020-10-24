@@ -1,0 +1,23 @@
+#Directory calculating the Kallisto counts
+
+#Generation of a transcriptome using the reference genome from NCBI (gnG assembly):
+
+module load genometools/1.5.3
+
+#Sort the gff file first
+gt gff3 -sort -retainids  ~/2016-05-09_DC_S.invicta_project/Annotations_S_invicta/GCF_000188075.1_Si_gnG_genomic.gff > ref_gnG/NCBI_gnG_annotation_genomic.gff3
+
+#Sort needs to be run several times
+gt gff3 -sort -fixregionboundaries -retainids ref_gnG/NCBI_gnG_annotation_genomic.gff3  > ref_gnG/NCBI_gnG_annotation_genomic_2.gff3
+
+#Generate the actual transcriptome:
+gt extractfeat -matchdesc -type CDS -join -retainids -seqfile ref_gnG/Si_gnG.fa ref_gnG/NCBI_gnG_annotation_genomic_2.gff3  > ref_gnG/s_invicta_gnG_transcriptome.fa
+
+
+#The 'cufflinks_rabt_s.gff3' file in ref_gnG is an annotation file generated using a RABT assembly from Cufflinks with the BAM files
+#It is used for generating a transcriptome with additional genes detected by Cufflinks.
+#More details in step 02
+#This gff file was cleaned and modified to make it work with genometools in step 04
+
+#Generate the new transcriptome:
+gt extractfeat -matchdesc -type exon -join -retainids -seqfile ref_gnG/Si_gnG.fa ref_gnG/cufflinks_rabt_s.gff3 > ref_gnG/s_invicta_gnG_transcriptome_cuff.fa

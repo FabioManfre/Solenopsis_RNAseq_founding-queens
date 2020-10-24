@@ -1,0 +1,4 @@
+Directory to trim the raw fastq reads by quality and remove the Illumnia adapters.
+In addition, the FastQC output showed a consistent pattern of tiles with low sequencing quality, remove those too
+
+bash trimming.sh

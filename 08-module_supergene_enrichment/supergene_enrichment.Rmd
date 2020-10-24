@@ -1,0 +1,328 @@
+---
+title: Gene enrichment analysis in the supergene for haplo v pleo metrotic gene expression
+  differences
+author: "Carlos Martinez Ruiz"
+date: "18 June 2019"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = 'results/')
+```
+```{r libraries, echo = FALSE, message = FALSE, warning = FALSE}
+#Load all libraries
+library(readxl)
+library(GenomicRanges)
+library(GenomicFeatures)
+library(ggplot2)
+
+for (package in (.packages()) ) {
+ print(paste("Package", package, "version", packageVersion(package)))
+}
+```
+
+Load all the xls sheets containing the gene names of each module and merge them into a single data frame  
+
+```{r load_module_data, include = FALSE}
+#Generate an empty data frame for the output
+genes_per_module <- matrix(NA, ncol = 2)
+colnames(genes_per_module) <- c("gene", "module")
+#Get the names of the modules, the name of each sheet in the xls file
+modules <- excel_sheets("input/WGCNA_network_modules_gene_IDs.xlsx")
+
+#Run a loop to add all genes per module into the joint dataframe
+for(this_module in modules){
+  #Load the gene names for the specific module
+  a_module <- as.matrix(read_excel("input/WGCNA_network_modules_gene_IDs.xlsx", sheet = this_module, col_names = FALSE))
+  #Generate a matrix with the gene names and the module name
+  a_module <- cbind(a_module, rep(this_module, nrow(a_module)))
+  #Stitch the new module to the joint matrix
+  genes_per_module <- rbind(genes_per_module, a_module)
+}
+#Remove NAs and turn into a data frame
+genes_per_module <- as.data.frame(na.omit(genes_per_module))
+
+```
+
+Get the genome locations for each gene from the gnG annotation file (REFseq version, as the names of the scaffolds in the regions file are in this notation)
+
+```{r load_annotation, include = FALSE}
+#Load the annotation for the gnG assembly of the Solenopsis invicta reference genome.
+si_ann <- makeTxDbFromGFF(file = "input/GCF_000188075.1_Si_gnG_genomic.gff",
+                          format="gff3")
+
+#Generate a table with the gene names and its position in the reference
+gene_ids <- keys(si_ann, "GENEID")
+gene_positions <- AnnotationDbi::select(x = si_ann,
+                        keys = gene_ids,
+                        columns = c("GENEID","TXCHROM", "TXSTART", "TXEND"),
+                        keytype = "GENEID")
+
+colnames(gene_positions) <- c("gene","contig", "start", "end")
+
+#Generate a GRanges object, the metadata refers to the gene name directly
+gene_positions_gr <- GRanges(Rle(gene_positions$contig),
+                                   IRanges(start = gene_positions$start,
+                                           end   = gene_positions$end),
+                                   gene          = gene_positions$gene)
+
+
+
+```
+
+Load the genomic locations of the supergene and merge with the locations of the genes to obtain a table with gene name and position in the supergene
+
+```{r load_regions_and_merge, include = FALSE}
+#Load the regions for gnG
+regions_gng <- read.table("input/gng_regions.tab", header = TRUE)
+
+#Generate a GRanges object from regions_gng
+regions_ranges <- GRanges(Rle(regions_gng$scaffold),
+                          IRanges(start = regions_gng$start,
+                                  end   = regions_gng$end),
+                          region        = regions_gng$region)
+
+
+#Merge the 'regions_ranges' object with the gene positions generated earlier
+gene_positions_supergene_gr <- mergeByOverlaps(gene_positions_gr,
+                                               regions_ranges, ignore.strand = TRUE)
+
+#Extract only the relevant information (gene name and position in the supergene)
+gene_positions_supergene <- data.frame(gene_positions_supergene_gr@listData$gene, gene_positions_supergene_gr@listData$region, stringsAsFactors = FALSE)
+colnames(gene_positions_supergene) <- c("gene", "position")
+```
+
+Once the information about gene position within the supergene has been generated, we can use it to answer questions about supergene loci enrichment in the modules, or simpler questions such as,
+are all gp9 genes in the supergene?
+
+```{r gp9s_supergene, include = FALSE}
+#Where are the three gp9s found in the study located with respect to the supergene?
+gp9s <- c("LOC105194481", "LOC105194487", "LOC105194495")
+gene_positions_supergene[gene_positions_supergene$gene %in% gp9s, ]
+```
+
+They are all in the supergene region, LOC105194481 is OBP-3 from (Pracana et al., 2017)<https://onlinelibrary.wiley.com/doi/full/10.1002/evl3.22>.
+
+## Enrichment per module
+Run enrichment analyses, first based on expected vs observed numbers of supergene genes within each module.
+
+```{r enrichment_by_number, include = FALSE}
+#Obtain expected number of genes in the supergene, i.e. proportion of genes in the supergene region compared to total number of genes in the genome
+total_genes_supergene <- length(which(gene_positions_supergene$position == "supergene"))
+total_genes_no_supergene <- length(which(gene_positions_supergene$position == "recombining"))
+
+#Run enrichment analyses for all modules using a loop
+enrichment_per_module <- matrix(NA, ncol = 3)
+colnames(enrichment_per_module) <- c("module", "bias", "p_value")
+for(this_module in modules){
+  #Subset for the focal module
+  the_module <- subset(x = genes_per_module, subset = module == this_module)
+  #Match gene names with position in the genome with respect to supergene region. NOTE: Many genes are missing in the posotions data frame because not all scaffolds 
+  #are properly placed into linkage groups 
+  the_module <- merge(the_module, gene_positions_supergene)
+  #Get the number of genes in and out the supergene region for each module
+  module_genes_supergene <- length(which(the_module$position == "supergene"))
+  module_genes_no_supergene <- length(which(the_module$position == "recombining"))
+  #Generate the 2x2 contigency matrix for a fisher test
+  to_test_fisher <- matrix(c((total_genes_supergene - module_genes_supergene), (total_genes_no_supergene - module_genes_no_supergene), module_genes_supergene, module_genes_no_supergene), ncol = 2)
+  colnames(to_test_fisher) <- c("expected", "observed")
+  rownames(to_test_fisher) <- c("no_supergene", "supergene")
+  #Run fisher test and keep the results of interest (p value and odds ratio)
+  fisher_results <- fisher.test(to_test_fisher)
+  p_value <- fisher_results$p.value
+  bias <- fisher_results$estimate
+  bias <- ifelse(bias < 1, "enriched", "depleted")
+  #Put the data of interest together and add to joint dataframe of results
+  the_results <- c(this_module, bias, p_value)
+  enrichment_per_module <- rbind(enrichment_per_module, the_results)
+}
+
+#Remove NAs and adjust p values (using BH method)
+enrichment_per_module <- as.data.frame(na.omit(enrichment_per_module))
+rownames(enrichment_per_module) <-  NULL
+enrichment_per_module$p_value <- as.numeric(as.character(enrichment_per_module$p_value))
+enrichment_per_module$padjust <- p.adjust(enrichment_per_module$p_value, method = "BH")
+
+#Output the enrichment per module p values
+write.table(file = "results/module_enrichment_pvals.csv", enrichment_per_module, row.names = FALSE, sep = ",", quote = FALSE)
+#Which modules are significantly enriched in genes from the supergene?
+subset(x = enrichment_per_module, subset = padjust < 0.05 & bias == "enriched")
+
+#Number of supergene/non-supergene loci per module (compared to total)
+#In green module
+green_module <- subset(x = genes_per_module, subset = module == "green")
+#Match gene names with position in the genome with respect to supergene region. NOTE: Many genes are missing in the posotions data frame because not all scaffolds 
+#are properly placed into linkage groups 
+green_module <- merge(green_module, gene_positions_supergene)
+#Get the number of genes in and out the supergene region for each module
+green_module_genes_supergene <- length(which(green_module$position == "supergene"))
+green_module_genes_no_supergene <- length(which(green_module$position == "recombining"))
+
+#Grey module
+grey_module <- subset(x = genes_per_module, subset = module == "grey")
+#Match gene names with position in the genome with respect to supergene region. NOTE: Many genes are missing in the posotions data frame because not all scaffolds 
+#are properly placed into linkage groups 
+grey_module <- merge(grey_module, gene_positions_supergene)
+#Get the number of genes in and out the supergene region for each module
+grey_module_genes_supergene <- length(which(grey_module$position == "supergene"))
+grey_module_genes_no_supergene <- length(which(grey_module$position == "recombining"))
+
+```
+
+In total, there are 640 genes in the supergene and 13973 outside. 
+In green module: 6 genes in the supergene, 16 outside.
+Grey module: 20 genes in the supergene, 218 outside. 
+
+Plot these results against expected values for each module. The expectations of how many loci from either position in the genome there should be in any module are based in the proportion of supergene/non-supergene loci across the whole genome. 
+
+```{r plot_module_enrichment, include = FALSE}
+#Generate a data frame for the data that will go in the plot
+to_plot_obs_exp <- data.frame(module = c("grey", "green"),
+                              genes_supergene = c(grey_module_genes_supergene, green_module_genes_supergene),
+                              observed_expected = rep("observed", 2))
+
+#Add the expected number of genes from the supergene given the total number of genes in the supergene vs the rest of the genome
+expected_proportion <- total_genes_supergene / (total_genes_no_supergene + total_genes_supergene)
+expected_genes_supergene_modules <- c((grey_module_genes_supergene + grey_module_genes_no_supergene) * expected_proportion,
+                                      (green_module_genes_supergene + green_module_genes_no_supergene) * expected_proportion)
+
+to_add_expected <- data.frame(module = c("grey", "green"),
+                              genes_supergene = expected_genes_supergene_modules,
+                              observed_expected = rep("expected", 2))
+to_plot_obs_exp <- rbind(to_plot_obs_exp, to_add_expected)
+
+#Plot the thing
+ggplot(data = to_plot_obs_exp, aes(x = module, y = genes_supergene, fill = observed_expected)) + 
+  geom_bar(stat = "identity", position = position_dodge()) +
+  #Make plot look pretty
+  #Change colours of the bars, labels and title of the legend
+  scale_fill_manual(values = c("brown2", "deepskyblue4"), name = "", labels = c("Observed", "Expected")) +
+  #Change background to white and modify the text and fonts of the axes
+  theme_bw() + theme(axis.title = element_text(size = 20, face = "bold"), axis.text = element_text(size = 12),
+                     legend.text = element_text(size = 15)) +
+  xlab("Module") + ylab("# genes in the supergene")  
+  
+```
+
+
+## Supergene enrichment in DEGs
+
+Use the p value per gene from all comparisons to check whether there is an enrichment of lower p values from genes in the supergene compared to genes in the rest of the genome.
+
+Load the data for the significance level per gene
+```{r load_pvals, include = FALSE, warning = FALSE}
+#Get the p values for all comparisons
+#Get the names of the modeules, the name of each sheet in the xls file
+all_contrasts <- excel_sheets("input/gene_expression_results.xlsx")
+
+#Generate a dataframe per contrast with all p values
+for(this_contrast in all_contrasts){
+  #Load the gene ids and their associated p values and store in a specific data frame
+  a_contrast <- as.matrix(read_excel("input/gene_expression_results.xlsx", sheet = this_contrast, col_names = TRUE))
+  #Make sure the variables are from the appropriate type
+  a_contrast <- data.frame(a_contrast, stringsAsFactors = FALSE)
+  a_contrast[, c(2:ncol(a_contrast))] <- apply(a_contrast[, c(2:ncol(a_contrast))], 2, as.numeric)
+  #Rename the new matrix
+  assign(paste0("pvals_", this_contrast), a_contrast)
+}
+#There is an issue with one of the dataframes, there is a typo in all gene names, where is says LO instead of LOC, this needs to be corrected
+pvals_LRT_3dpf$GeneID <- gsub(pattern = "LO105",
+                              replacement = "LOC105",
+                              x = pvals_LRT_3dpf$GeneID)
+```
+
+Assign a position within or otside the supergene to each gene in every comparison
+
+```{r assign_positions_pvals, include = FALSE, warning = FALSE}
+#Use a loop to add the position to each gene in every comparison
+for(this_contrast in all_contrasts){
+  #Get the appropriate data frame
+  these_pvals <- get(paste0("pvals_", this_contrast))
+  #Make sure the gene variable is named the same in the p values dataset and the association dataset
+  colnames(these_pvals)[1] <- colnames(gene_positions_supergene)[1]
+  #Merge both dataframes to get a list of genes and their associated p values + their position in or out the supergene
+  these_pvals <- merge(these_pvals, gene_positions_supergene)
+  #Rename the data frame
+  assign(paste0("pvals_", this_contrast), these_pvals)
+}
+```
+
+Run a KS test comparing the distribution of p values (uncorrected!) between supergene and non-supergene loci for all comparisons. Store the results of the enrichment tests in a dataframe for all comparisons
+
+```{r supergene_p_value_enrichment_tests, include = FALSE, warning = FALSE}
+#Create an empty matrix to store all the information
+ks_enrichment_tests <- matrix(NA, ncol = 4)
+#Load each comparison one by one using a loop
+for(this_contrast in all_contrasts){
+  #Get the appropriate data frame
+  these_pvals <- get(paste0("pvals_", this_contrast))
+  #Get the names of the variables containing the uncorrected pvalues for each specific test
+  raw_pvals_names <- grep(pattern = "(pvalue)|(LRT_p_values)",
+                          x = colnames(these_pvals),
+                          value = TRUE)
+  #Run a second loop for each test, and run and check enrichment using a KS test
+  for(this_test in raw_pvals_names){
+    #Get a vector with the pvalues
+    raw_pvals <- these_pvals[, this_test]
+    #Divide the vector into two depending on position in the supergene
+    raw_pvals_supergene <- raw_pvals[these_pvals$position == "supergene"]
+    raw_pvals_no_supergene <- raw_pvals[these_pvals$position == "recombining"]
+    #Run the KS test and store the p value
+    ks_pval <- ks.test(raw_pvals_supergene, raw_pvals_no_supergene)$p.value
+    #Make sure there is enrichment
+    enrichment <- ifelse(median(raw_pvals_supergene, na.rm = TRUE) < median(raw_pvals_no_supergene, na.rm = TRUE),
+                         "enrichment", "no_enrichment")
+    #Put all the information together and add to joint data frame
+    this_test <- gsub(pattern = "(_pvalue)|(LRT_p_values)",
+                      replacement = "",
+                      x = this_test)
+    all_info <- c(this_contrast, this_test, enrichment, ks_pval)
+    ks_enrichment_tests <- rbind(ks_enrichment_tests, all_info)
+  }
+}
+#Remove NAs, turn into dataframe and adjust pvalues
+ks_enrichment_tests <- data.frame(na.omit(ks_enrichment_tests))
+colnames(ks_enrichment_tests) <- c("contrast", "test", "supergene_enrichment", "ks_pvalue")
+rownames(ks_enrichment_tests) <- NULL
+ks_enrichment_tests$ks_pvalue <- as.numeric(as.character(ks_enrichment_tests$ks_pvalue))
+ks_enrichment_tests$ks_padj <- p.adjust(ks_enrichment_tests$ks_pvalue, method = "BH")
+
+#Is there any comparison for which there is a significant enrichment of supergene loci?
+enriched_and_significant <- which(ks_enrichment_tests$supergene_enrichment == "enrichment" &
+                                  ks_enrichment_tests$ks_padj < 0.05)
+
+#Output the table with ks significance values
+write.table(file = "results/ks_pvals.csv", ks_enrichment_tests, row.names = FALSE, sep = ",", quote = FALSE)
+ks_enrichment_tests[enriched_and_significant,]
+```
+There is enrichment for significance in supergene loci in SFQ vs GFQ at 25 days (independently of whether large or small)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

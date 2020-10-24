@@ -1,0 +1,15 @@
+#Directory to generate a list of GO terms associated with gene IDs from S.invicta
+#The 'NCBI_gene_names.txt' file was downloaded from NCBI searching for 'Solenopsis invicta' in the 'gene' database
+#The 'uniprot-solenopsis+invicta.tab' was downloaded from Uniprot, searching for 'Solenopsis invicta' GO ids.
+#The aim here is to combine the aliases for gene names from uniprot (e.g. SINV...) with their accession number in NCBI so that
+#further analysis can be done easily.
+
+#The 'NCBI_gene_ID-alias_only.txt' is a tab-separated file with the accession number and alias for all genes in S.invicta.
+#It was generated using:
+
+awk -F  "\t" 'BEGIN {OFS = "\t"}{print $3, $7}' NCBI_gene_names.txt | sed -r 's/([[:alnum:]]+.[[:alnum:]]+)(,.+)/\1/' > NCBI_gene_ID-alias_only.txt
+
+#The 'uniprot_names-GO_only.txt' is a tab-separated file with the aliases, accession number and GO IDs for all genes in S.invicta
+#It was generated using:
+
+awk -F  "\t" 'BEGIN {OFS = "\t"}{print $5, $11, $13}' uniprot-solenopsis+invicta.tab > uniprot_names-GO_only.txt
