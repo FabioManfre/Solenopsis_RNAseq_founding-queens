@@ -12,6 +12,6 @@ All the subdirectories are numbered according to the order in which they were ru
 4. **annotate_new_transcripts:** Insert the new transcripts detected in step 02 into a new annotation file.
 5. **kallisto_counts:** Obtain read counts to measure expression.
 6. **gene_expression_analysis:** Use DESeq2 to compare expression patterns between groups of founding queens.
-7. **gene network analysis:** Use WGCNA to call co-expression modules in groups of founding queens.
+7. **gene_network_analysis:** Use WGCNA to call co-expression modules in groups of founding queens.
 8. **module_supergene_enrichment:** Perform an enrichment analysis to test whether any module is enriched in genes within the supergene.
 9. **module_association_plots:** Perform plots to check how different genes change across modules.
