@@ -2,8 +2,8 @@
 
 Scripts for the generation and analysis of the data used for "Complexity of the social environment and behavioural plasticity drive divergent gene expression in the brain of ant queens". The scripts listed here go through all the steps from raw RNAseq data, to read count, analyses of differences in gene expression and gene network analyses in different queen founding groups of the red fire ant *Solenopsis invicta*.
 
-The raw data used for this analysis is available in NCBI, specifically: 
-PRJNA525584 https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA525584
+The raw data used for this analysis is available in NCBI: 
+[PRJNA525584](https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA525584)
 
 All the subdirectories are numbered according to the order in which they were run for the analysis:
 1. **read_qc_trimming:** Clean raw reads by quality and remove adapters.
