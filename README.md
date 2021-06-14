@@ -1,4 +1,4 @@
-# Scripts for "Complexity of the social environment and behavioural plasticity drive divergent gene expression in the brain of ant queens"
+# Scripts for "SOCIAL ISOLATION AND GROUP SIZE ARE ASSOCIATED WITH DIVERGENT GENE EXPRESSION IN THE BRAIN OF ANT QUEENS"
 
 Scripts for the generation and analysis of the data used for "Complexity of the social environment and behavioural plasticity drive divergent gene expression in the brain of ant queens". The scripts listed here go through all the steps from raw RNAseq data, to read count, analyses of differences in gene expression and gene network analyses in different queen founding groups of the red fire ant *Solenopsis invicta*.
 
